@@ -47,6 +47,19 @@ class ArbitrageOpportunity:
     optimal_amount: float
     route: List[str]
     timestamp: float
+    estimated_gas_cost_usd: float = 0.0
+    flashloan_fee_usd: float = 0.0
+    net_profit_usd: float = 0.0
+    
+    def calculate_net_profit(self, sol_price_usd: float = 100.0):
+        """Calculate net profit after all fees"""
+        total_fees = self.estimated_gas_cost_usd + self.flashloan_fee_usd
+        self.net_profit_usd = self.estimated_profit_usd - total_fees
+        return self.net_profit_usd
+    
+    def is_profitable(self) -> bool:
+        """Check if opportunity is profitable after all fees"""
+        return self.net_profit_usd > 0
     
     def to_dict(self) -> Dict:
         return {
@@ -56,11 +69,15 @@ class ArbitrageOpportunity:
             'buy_price': self.buy_price,
             'sell_price': self.sell_price,
             'profit_percent': self.profit_percent,
-            'estimated_profit': self.estimated_profit_usd,
+            'gross_profit': self.estimated_profit_usd,
+            'gas_cost': self.estimated_gas_cost_usd,
+            'flashloan_fee': self.flashloan_fee_usd,
+            'net_profit': self.net_profit_usd,
             'liquidity': self.liquidity_available,
             'optimal_amount': self.optimal_amount,
             'route': self.route,
-            'timestamp': self.timestamp
+            'timestamp': self.timestamp,
+            'profitable': self.is_profitable()
         }
 
 
@@ -106,6 +123,14 @@ class FlashloanCore:
             'custom': {'max_borrow': 5000000, 'fee': 0.0005}
         }
         
+        # Gas cost estimation (in SOL)
+        self.base_gas_cost = 0.00005  # Base transaction cost
+        self.compute_units_per_instruction = 200000  # Estimated compute units
+        self.priority_fee_lamports = 100000  # Priority fee from config
+        
+        # Current SOL price (updated periodically)
+        self.sol_price_usd = self._get_sol_price()
+        
     def scan_arbitrage_opportunities(self, tokens: List[str], min_profit_percent: float = 0.5) -> List[ArbitrageOpportunity]:
         """
         Scan multiple DEXs for arbitrage opportunities
@@ -115,7 +140,7 @@ class FlashloanCore:
             min_profit_percent: Minimum profit percentage threshold
             
         Returns:
-            List of arbitrage opportunities
+            List of profitable arbitrage opportunities (after gas fees)
         """
         opportunities = []
         
@@ -147,6 +172,13 @@ class FlashloanCore:
                     
                     estimated_profit = optimal_amount * (sell_price - buy_price)
                     
+                    # Calculate gas costs
+                    gas_cost_sol = self._estimate_gas_cost(num_swaps=2)
+                    gas_cost_usd = gas_cost_sol * self.sol_price_usd
+                    
+                    # Calculate flashloan fees
+                    flashloan_fee = optimal_amount * buy_price * 0.0005  # 0.05% default
+                    
                     opportunity = ArbitrageOpportunity(
                         token_address=token,
                         buy_dex=buy_dex,
@@ -158,17 +190,27 @@ class FlashloanCore:
                         liquidity_available=liquidity,
                         optimal_amount=optimal_amount,
                         route=[buy_dex, sell_dex],
-                        timestamp=time.time()
+                        timestamp=time.time(),
+                        estimated_gas_cost_usd=gas_cost_usd,
+                        flashloan_fee_usd=flashloan_fee
                     )
                     
-                    opportunities.append(opportunity)
+                    # Calculate net profit after all fees
+                    net_profit = opportunity.calculate_net_profit(self.sol_price_usd)
+                    
+                    # Only add if profitable after fees
+                    if opportunity.is_profitable():
+                        opportunities.append(opportunity)
+                        cprint(f"✅ Found opportunity: {token[:8]}... Net profit: ${net_profit:.4f}", "green")
+                    else:
+                        cprint(f"⚠️ Skipping {token[:8]}... - unprofitable after fees (${net_profit:.4f})", "yellow")
                     
             except Exception as e:
                 cprint(f"⚠️ Error scanning {token}: {str(e)}", "yellow")
                 continue
         
-        # Sort by profit potential
-        opportunities.sort(key=lambda x: x.estimated_profit_usd, reverse=True)
+        # Sort by net profit (after fees)
+        opportunities.sort(key=lambda x: x.net_profit_usd, reverse=True)
         return opportunities
     
     def _get_multi_dex_prices(self, token_address: str) -> Dict:
@@ -351,6 +393,58 @@ class FlashloanCore:
             'gas_cost': 0.00005  # Example SOL cost
         }
     
+    def _estimate_gas_cost(self, num_swaps: int = 2) -> float:
+        """
+        Estimate gas cost in SOL for flashloan arbitrage
+        
+        Args:
+            num_swaps: Number of swap operations
+            
+        Returns:
+            Estimated gas cost in SOL
+        """
+        # Flashloan transaction includes:
+        # 1. Borrow instruction
+        # 2. N swap instructions
+        # 3. Repay instruction
+        # Plus compute budget and priority fee
+        
+        num_instructions = 2 + num_swaps  # Borrow + swaps + repay
+        compute_units = self.compute_units_per_instruction * num_instructions
+        
+        # Base fee (5000 lamports per signature)
+        base_fee = 0.000005
+        
+        # Compute fee
+        compute_fee = (compute_units / 1000000) * 0.00001
+        
+        # Priority fee
+        priority_fee = self.priority_fee_lamports / 1e9
+        
+        total_gas_sol = base_fee + compute_fee + priority_fee
+        
+        return total_gas_sol
+    
+    def _get_sol_price(self) -> float:
+        """Get current SOL price in USD"""
+        try:
+            from src.nice_funcs import token_price
+            from src.config import SOL_ADDRESS
+            
+            sol_price = token_price(SOL_ADDRESS)
+            if sol_price:
+                return sol_price
+        except Exception as e:
+            cprint(f"⚠️ Failed to get SOL price: {str(e)}", "yellow")
+        
+        # Default fallback price
+        return 100.0
+    
+    def update_sol_price(self):
+        """Update SOL price - call periodically"""
+        self.sol_price_usd = self._get_sol_price()
+        return self.sol_price_usd
+    
     def get_balance(self) -> float:
         """Get wallet SOL balance"""
         try:
@@ -360,3 +454,19 @@ class FlashloanCore:
         except Exception as e:
             cprint(f"⚠️ Failed to get balance: {str(e)}", "yellow")
         return 0.0
+    
+    def calculate_required_gas_reserve(self, num_opportunities: int = 10) -> float:
+        """
+        Calculate SOL reserve needed for gas fees
+        
+        Args:
+            num_opportunities: Number of opportunities to execute
+            
+        Returns:
+            Required SOL amount for gas
+        """
+        gas_per_trade = self._estimate_gas_cost(num_swaps=2)
+        total_gas_needed = gas_per_trade * num_opportunities
+        
+        # Add 20% buffer for safety
+        return total_gas_needed * 1.2

@@ -46,12 +46,13 @@ class FlashloanValidator:
     4. Track accuracy and adapt thresholds
     """
     
-    def __init__(self, min_accuracy_target: float = 80.0):
+    def __init__(self, min_accuracy_target: float = 80.0, min_confidence_to_execute: float = 90.0):
         """
         Initialize validator
         
         Args:
             min_accuracy_target: Minimum accuracy % required (default 80%)
+            min_confidence_to_execute: Minimum confidence to execute (default 90%)
         """
         self.min_accuracy_target = min_accuracy_target
         
@@ -59,9 +60,9 @@ class FlashloanValidator:
         self.execution_history: deque = deque(maxlen=100)
         
         # Validation thresholds (adaptive)
-        self.min_confidence = 80.0  # Start at 80%
-        self.min_net_profit_usd = 0.01  # Must profit at least 1 cent
-        self.max_risk_score = 0.3  # Max 30% risk
+        self.min_confidence = min_confidence_to_execute  # EXECUTE at 90%+ probability
+        self.min_net_profit_usd = 0.001  # Must profit at least 0.1 cent (very low threshold)
+        self.max_risk_score = 0.4  # Max 40% risk (slightly more permissive)
         
         # Gas cost safety margins
         self.gas_safety_multiplier = 1.5  # Assume 50% higher gas than estimated
@@ -74,9 +75,10 @@ class FlashloanValidator:
         
         cprint("\n🛡️ Flashloan Validator Initialized", "cyan", attrs=['bold'])
         cprint(f"   Minimum Accuracy Target: {self.min_accuracy_target}%", "yellow")
-        cprint(f"   Minimum Confidence: {self.min_confidence}%", "yellow")
+        cprint(f"   EXECUTE at Confidence: {self.min_confidence}%+", "green", attrs=['bold'])
         cprint(f"   Minimum Net Profit: ${self.min_net_profit_usd}", "yellow")
         cprint(f"   Gas Safety Margin: {self.gas_safety_multiplier}x", "yellow")
+        cprint(f"   Strategy: Execute ALL opportunities with {self.min_confidence}%+ probability", "green")
     
     def validate_execution(self, opportunity, slippage_prediction: Dict, 
                           market_impact: Dict) -> ExecutionDecision:
@@ -147,10 +149,11 @@ class FlashloanValidator:
         cprint(f"   📊 Confidence Score: {confidence:.1f}%", 
                "green" if confidence >= self.min_confidence else "yellow")
         
-        # STEP 4: Check confidence threshold
+        # STEP 4: Check confidence threshold (90%+ = EXECUTE)
         if confidence < self.min_confidence:
             reasons.append(f"Confidence too low: {confidence:.1f}% < {self.min_confidence}%")
-            cprint(f"   ❌ REJECTED: Confidence below threshold", "red")
+            cprint(f"   ❌ REJECTED: Confidence {confidence:.1f}% below {self.min_confidence}% threshold", "red")
+            cprint(f"   Need {self.min_confidence - confidence:.1f}% more confidence to execute", "yellow")
             
             return ExecutionDecision(
                 should_execute=False,
@@ -161,7 +164,8 @@ class FlashloanValidator:
                 warnings=warnings
             )
         
-        reasons.append(f"High confidence: {confidence:.1f}%")
+        reasons.append(f"Excellent confidence: {confidence:.1f}% (≥{self.min_confidence}%)")
+        cprint(f"   ✅ CONFIDENCE THRESHOLD MET: {confidence:.1f}% ≥ {self.min_confidence}%", "green", attrs=['bold'])
         
         # STEP 5: Calculate risk score
         risk_score = self._calculate_risk_score(opportunity, slippage_prediction, market_impact)
@@ -204,10 +208,14 @@ class FlashloanValidator:
             )
         
         # ALL CHECKS PASSED - APPROVE EXECUTION
-        cprint(f"   ✅ APPROVED FOR EXECUTION", "green", attrs=['bold'])
-        cprint(f"      Expected Profit: ${expected_net_profit:.6f}", "green")
-        cprint(f"      Confidence: {confidence:.1f}%", "green")
-        cprint(f"      Risk: {risk_score:.2f}", "green")
+        cprint(f"\n   {'='*60}", "green")
+        cprint(f"   ✅ APPROVED FOR EXECUTION - 90%+ PROBABILITY", "green", attrs=['bold'])
+        cprint(f"   {'='*60}", "green")
+        cprint(f"      Expected Profit: ${expected_net_profit:.6f}", "green", attrs=['bold'])
+        cprint(f"      Confidence: {confidence:.1f}% (Target: ≥{self.min_confidence}%)", "green")
+        cprint(f"      Risk Score: {risk_score:.2f}/1.0", "green")
+        cprint(f"      Probability of Success: {confidence:.1f}%", "green", attrs=['bold'])
+        cprint(f"   {'='*60}\n", "green")
         
         return ExecutionDecision(
             should_execute=True,
@@ -400,9 +408,9 @@ class FlashloanValidator:
         if net_profit < gas_cost * 2:
             warnings.append(f"Profit barely covers gas (${net_profit:.6f} vs ${gas_cost:.6f} gas)")
         
-        # Check 2: Reasonable profit margin
+        # Check 2: Reasonable profit margin (lowered for 90% confidence trades)
         profit_margin = net_profit_analysis['profit_margin_pct']
-        if profit_margin < 5:
+        if profit_margin < 2:  # Very low threshold - confidence score handles profitability
             failures.append(f"Profit margin too thin: {profit_margin:.1f}%")
         
         # Check 3: Trade size is reasonable
@@ -470,8 +478,10 @@ class FlashloanValidator:
         """
         Adapt validation thresholds based on performance
         
-        If accuracy < 80%: Increase thresholds (be more conservative)
-        If accuracy > 90%: Decrease thresholds (be more aggressive)
+        Strategy: Maintain 90%+ confidence requirement but adjust other parameters
+        
+        If accuracy < 80%: Increase confidence requirement and other thresholds
+        If accuracy > 90%: Can slightly reduce confidence requirement
         """
         if len(self.execution_history) < 10:
             return  # Need more data
@@ -481,24 +491,30 @@ class FlashloanValidator:
         cprint(f"\n📊 Current Accuracy: {current_accuracy:.1f}% (Target: {self.min_accuracy_target}%)", "cyan")
         
         if current_accuracy < self.min_accuracy_target:
-            # Too many failures - be more conservative
+            # Too many failures - be MORE conservative
             old_confidence = self.min_confidence
-            self.min_confidence = min(95.0, self.min_confidence + 2.0)
-            self.min_net_profit_usd *= 1.2
-            self.max_risk_score *= 0.9
+            self.min_confidence = min(98.0, self.min_confidence + 1.5)  # Increase up to 98%
+            self.min_net_profit_usd *= 1.3
+            self.max_risk_score *= 0.85
             
-            cprint(f"⚠️ Accuracy below target - INCREASING thresholds", "yellow")
+            cprint(f"⚠️ Accuracy below {self.min_accuracy_target}% - INCREASING confidence requirement", "yellow", attrs=['bold'])
             cprint(f"   Confidence: {old_confidence:.1f}% → {self.min_confidence:.1f}%", "yellow")
+            cprint(f"   Min Profit: ${old_confidence * 0.001:.6f} → ${self.min_net_profit_usd:.6f}", "yellow")
             
-        elif current_accuracy > 90.0:
-            # Very high accuracy - can be more aggressive
+        elif current_accuracy >= 95.0:
+            # Excellent accuracy - can slightly reduce threshold but keep ≥90%
             old_confidence = self.min_confidence
-            self.min_confidence = max(75.0, self.min_confidence - 1.0)
-            self.min_net_profit_usd *= 0.95
-            self.max_risk_score = min(0.5, self.max_risk_score * 1.05)
+            self.min_confidence = max(90.0, self.min_confidence - 0.5)  # Never below 90%
+            self.min_net_profit_usd *= 0.97
+            self.max_risk_score = min(0.5, self.max_risk_score * 1.03)
             
-            cprint(f"✅ High accuracy - DECREASING thresholds", "green")
-            cprint(f"   Confidence: {old_confidence:.1f}% → {self.min_confidence:.1f}%", "green")
+            cprint(f"✅ Excellent accuracy ({current_accuracy:.1f}%) - slight threshold adjustment", "green")
+            cprint(f"   Confidence: {old_confidence:.1f}% → {self.min_confidence:.1f}% (floor: 90%)", "green")
+        
+        elif current_accuracy >= self.min_accuracy_target:
+            # Good accuracy - maintain current thresholds
+            cprint(f"✅ Good accuracy ({current_accuracy:.1f}%) - maintaining thresholds", "green")
+            cprint(f"   Confidence requirement: {self.min_confidence:.1f}%", "green")
     
     def get_validation_stats(self) -> Dict:
         """Get validation statistics"""

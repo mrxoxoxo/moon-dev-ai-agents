@@ -1,0 +1,50 @@
+{
+  "_comment": "Ultimate Flashloan Swarm Configuration",
+  
+  "initial_population": 5,
+  "max_population": 25,
+  "min_population": 3,
+  
+  "target_net_profit": 100.0,
+  "min_net_profit": 0.50,
+  "min_profit_for_reproduction": 10.0,
+  
+  "min_confidence": 90.0,
+  "min_accuracy": 80.0,
+  
+  "gas_safety_margin": 2.0,
+  "slippage_safety_margin": 1.5,
+  "max_slippage_bps": 100,
+  "priority_fee_lamports": 100000,
+  
+  "mc_simulations": 10000,
+  "enable_game_theory": true,
+  "enable_competitor_destroyer": true,
+  
+  "scan_interval": 15,
+  "stats_print_interval": 300,
+  
+  "discovery_enabled": true,
+  "max_tokens_to_scan": 100,
+  "token_refresh_interval": 600,
+  
+  "profit_distribution": {
+    "enabled": false,
+    "btc_wallet": "",
+    "eth_wallet": "",
+    "btc_allocation": 50.0,
+    "eth_allocation": 50.0,
+    "min_amount_to_distribute": 10.0
+  },
+  
+  "max_capital": 1000000,
+  "max_position_size_pct": 30.0,
+  "emergency_shutdown_loss": -1000.0,
+  "max_drawdown_pct": 20.0,
+  
+  "destroyer_enabled": true,
+  "min_competitor_value": 5.0,
+  
+  "data_dir": "src/data/ultimate_flashloan_swarm",
+  "save_all_trades": true
+}

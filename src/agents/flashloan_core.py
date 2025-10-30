@@ -108,13 +108,24 @@ class FlashloanCore:
         cprint(f"✅ Flashloan Core initialized", "green")
         cprint(f"   Wallet: {self.wallet_address[:8]}...{self.wallet_address[-6:]}", "cyan")
         
-        # DEX configurations
+        # DEX-ONLY configurations (NO CENTRALIZED EXCHANGES)
+        # Only Solana on-chain DEXs are allowed for true decentralization
         self.dex_configs = {
-            'raydium': {'program_id': RAYDIUM_V4, 'fee': 0.0025},
-            'orca': {'program_id': ORCA_WHIRLPOOL, 'fee': 0.003},
-            'jupiter': {'program_id': JUPITER_V6, 'fee': 0.0},  # Jupiter is aggregator
-            'meteora': {'program_id': METEORA, 'fee': 0.002}
+            'raydium': {'program_id': RAYDIUM_V4, 'fee': 0.0025, 'type': 'DEX'},
+            'orca': {'program_id': ORCA_WHIRLPOOL, 'fee': 0.003, 'type': 'DEX'},
+            'jupiter': {'program_id': JUPITER_V6, 'fee': 0.0, 'type': 'DEX_AGGREGATOR'},
+            'meteora': {'program_id': METEORA, 'fee': 0.002, 'type': 'DEX'}
         }
+        
+        # Explicitly blacklist CEX sources
+        self.cex_blacklist = [
+            'binance', 'coinbase', 'kraken', 'bybit', 'okx', 'kucoin',
+            'gate.io', 'huobi', 'bitfinex', 'gemini', 'ftx', 'mexc'
+        ]
+        
+        cprint("🔒 DEX-ONLY Mode Enforced:", "green")
+        cprint(f"   Allowed DEXs: {', '.join(self.dex_configs.keys())}", "cyan")
+        cprint(f"   CEX Blacklist: {len(self.cex_blacklist)} exchanges blocked", "yellow")
         
         # Flashloan providers on Solana (simulated - would need actual protocol integration)
         self.flashloan_providers = {
@@ -152,7 +163,10 @@ class FlashloanCore:
         
     def scan_arbitrage_opportunities(self, tokens: List[str], min_profit_percent: float = 0.5) -> List[ArbitrageOpportunity]:
         """
-        Scan multiple DEXs for arbitrage opportunities
+        Scan multiple DEXs for arbitrage opportunities (DEX-ONLY)
+        
+        This function ONLY scans decentralized exchanges on Solana.
+        All centralized exchanges are explicitly blocked.
         
         Args:
             tokens: List of token addresses to scan
@@ -161,6 +175,10 @@ class FlashloanCore:
         Returns:
             List of profitable arbitrage opportunities (after gas fees)
         """
+        cprint("\n🔍 Scanning for DEX-ONLY arbitrage opportunities...", "cyan", attrs=['bold'])
+        cprint("   ✅ Only decentralized exchanges will be used", "green")
+        cprint("   🚫 Centralized exchanges are blocked", "red")
+        
         opportunities = []
         
         for token in tokens:
@@ -232,61 +250,114 @@ class FlashloanCore:
         opportunities.sort(key=lambda x: x.net_profit_usd, reverse=True)
         return opportunities
     
+    def _is_dex_only(self, source_name: str) -> bool:
+        """
+        Validate that a price source is a DEX (not a CEX)
+        
+        Returns:
+            True if source is a valid DEX, False otherwise
+        """
+        source_lower = source_name.lower()
+        
+        # Check if it's in our blacklist of CEXs
+        for cex in self.cex_blacklist:
+            if cex in source_lower:
+                cprint(f"🚫 BLOCKED: {source_name} is a CEX (centralized exchange)", "red")
+                return False
+        
+        # Check if it's in our whitelist of DEXs
+        if source_lower in self.dex_configs:
+            return True
+        
+        # Allow known DEX aggregators and on-chain sources
+        allowed_patterns = ['raydium', 'orca', 'jupiter', 'meteora', 'birdeye', 
+                          'saber', 'serum', 'openbook', 'phoenix', 'lifinity']
+        
+        for pattern in allowed_patterns:
+            if pattern in source_lower:
+                return True
+        
+        # Default: reject unknown sources
+        cprint(f"⚠️ REJECTED: {source_name} - unknown source (DEX-only mode)", "yellow")
+        return False
+    
     def _get_multi_dex_prices(self, token_address: str) -> Dict:
-        """Get token prices from multiple DEXs"""
+        """Get token prices from multiple DEXs (NO CEX DATA)"""
         prices = {}
         
-        # Use Jupiter API for aggregated pricing
+        cprint(f"🔍 Scanning DEX prices for {token_address[:8]}... (DEX-ONLY mode)", "cyan")
+        
+        # Use Jupiter API for aggregated DEX pricing
         try:
             import requests
             
-            # Get quote from Jupiter
+            # Get quote from Jupiter (DEX aggregator)
             url = f"https://quote-api.jup.ag/v6/quote"
             params = {
                 'inputMint': 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',  # USDC
                 'outputMint': token_address,
                 'amount': 1000000,  # 1 USDC
-                'slippageBps': 50
+                'slippageBps': 50,
+                'onlyDirectRoutes': False  # Get all DEX routes
             }
             
             response = requests.get(url, params=params, timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 
-                # Parse route markets
+                # Parse route markets from DEXs only
                 routes = data.get('routePlan', [])
                 for route in routes:
                     for swap in route.get('swapInfo', []):
                         label = swap.get('label', 'unknown')
+                        
+                        # CRITICAL: Only accept DEX sources
+                        if not self._is_dex_only(label):
+                            continue
+                        
                         in_amount = float(swap.get('inAmount', 0))
                         out_amount = float(swap.get('outAmount', 0))
                         
                         if in_amount > 0 and out_amount > 0:
                             price = in_amount / out_amount
                             
-                            if label not in prices or prices[label]['price'] > price:
-                                prices[label.lower()] = {
+                            label_clean = label.lower()
+                            if label_clean not in prices or prices[label_clean]['price'] > price:
+                                prices[label_clean] = {
                                     'price': price,
                                     'liquidity': out_amount,
-                                    'source': 'jupiter'
+                                    'source': 'jupiter_dex',
+                                    'verified_dex': True
                                 }
+                                cprint(f"   ✅ DEX: {label} - Price: ${price:.6f}", "green")
                 
         except Exception as e:
             cprint(f"⚠️ Jupiter API error: {str(e)}", "yellow")
         
-        # Fallback to BirdEye for additional data
+        # Fallback to BirdEye for additional DEX data
+        # BirdEye aggregates on-chain DEX data only
         try:
             from src.nice_funcs import token_price
             birdeye_price = token_price(token_address)
             
             if birdeye_price:
-                prices['birdeye'] = {
+                prices['birdeye_dex'] = {
                     'price': birdeye_price,
                     'liquidity': 0,
-                    'source': 'birdeye'
+                    'source': 'birdeye_on_chain',
+                    'verified_dex': True
                 }
+                cprint(f"   ✅ DEX: BirdEye (on-chain) - Price: ${birdeye_price:.6f}", "green")
         except:
             pass
+        
+        # Filter out any non-DEX sources that may have slipped through
+        prices = {k: v for k, v in prices.items() if v.get('verified_dex', False)}
+        
+        if not prices:
+            cprint(f"   ⚠️ No DEX prices found for {token_address[:8]}...", "yellow")
+        else:
+            cprint(f"   📊 Found {len(prices)} DEX price sources", "green")
         
         return prices
     

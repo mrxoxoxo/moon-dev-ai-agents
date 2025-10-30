@@ -51,9 +51,9 @@ class AgentGenetics:
             self.risk_tolerance *= random.uniform(0.5, 1.5)
             self.aggression *= random.uniform(0.5, 1.5)
             
-            # Try different DEXs
-            all_dexs = ['raydium', 'orca', 'jupiter', 'meteora']
-            self.dex_preference = random.sample(all_dexs, k=random.randint(2, 4))
+            # Try different DEXs (DEX-ONLY, no CEX)
+            solana_dexs_only = ['raydium', 'orca', 'jupiter', 'meteora']
+            self.dex_preference = random.sample(solana_dexs_only, k=random.randint(2, 4))
         
         # Keep values in reasonable ranges
         self.min_profit_threshold = max(0.1, min(5.0, self.min_profit_threshold))
@@ -149,12 +149,19 @@ class FlashloanBabyAgent:
         cprint(f"   DEX Preference: {', '.join(self.genetics.dex_preference)}", "cyan")
     
     def _create_random_genetics(self) -> AgentGenetics:
-        """Create random genetic traits for diversity"""
+        """
+        Create random genetic traits for diversity
+        
+        DEX-ONLY: Only Solana DEXs are allowed in preferences
+        """
+        # ONLY Solana DEXs - NO CEX allowed
+        solana_dexs = ['raydium', 'orca', 'jupiter', 'meteora']
+        
         return AgentGenetics(
             min_profit_threshold=random.uniform(0.3, 2.0),
             max_trade_size_usd=random.uniform(1000, 50000),
             risk_tolerance=random.uniform(0.2, 0.8),
-            dex_preference=random.sample(['raydium', 'orca', 'jupiter', 'meteora'], k=random.randint(2, 4)),
+            dex_preference=random.sample(solana_dexs, k=random.randint(2, 4)),
             scan_interval_seconds=random.uniform(15, 60),
             aggression=random.uniform(0.3, 0.9),
             adaptability=random.uniform(0.3, 0.8)

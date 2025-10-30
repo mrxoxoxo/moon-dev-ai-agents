@@ -1,4 +1,6 @@
 {
+  "_comment": "Ultimate Flashloan Swarm Configuration",
+  
   "initial_population": 5,
   "max_population": 25,
   "min_population": 3,
@@ -20,7 +22,6 @@
   "enable_competitor_destroyer": true,
   
   "scan_interval": 15,
-  "eigenphi_learning_interval": 3600,
   "stats_print_interval": 300,
   
   "discovery_enabled": true,
@@ -28,7 +29,7 @@
   "token_refresh_interval": 600,
   
   "profit_distribution": {
-    "enabled": true,
+    "enabled": false,
     "btc_wallet": "",
     "eth_wallet": "",
     "btc_allocation": 50.0,
@@ -43,10 +44,7 @@
   
   "destroyer_enabled": true,
   "min_competitor_value": 5.0,
-  "honeypot_frequency": 3600,
   
   "data_dir": "src/data/ultimate_flashloan_swarm",
-  "save_all_trades": true,
-  "save_agent_lineage": true,
-  "save_competitor_data": true
+  "save_all_trades": true
 }

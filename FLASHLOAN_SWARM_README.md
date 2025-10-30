@@ -1,6 +1,26 @@
 # 🌙 Ultimate Flashloan Arbitrage Swarm
 
 > **The most advanced self-evolving Solana MEV bot with competitor destruction**
+> 
+> **NEW**: ElizaOS-inspired architecture with agent personalities & memory systems!
+
+## 📦 Two Versions Available
+
+### 1. ULTIMATE_FLASHLOAN_SWARM.py (Production)
+- Complete flashloan arbitrage system
+- Optimized for real trading
+- All features in one file
+
+### 2. ELIZA_FLASHLOAN_SWARM.py (ElizaOS-Inspired)
+- Agent personalities & characters
+- Memory system (episodic/semantic)
+- Action/Evaluator pattern
+- Provider architecture
+- Better multi-agent coordination
+
+**Choose based on your needs:**
+- **Trading focus** → Use ULTIMATE version
+- **Research/experimentation** → Use ELIZA version
 
 ## 🎯 What It Does
 
@@ -204,8 +224,37 @@ src/data/ultimate_flashloan_swarm/
 - **First** flashloan bot with true evolutionary swarm intelligence
 - **First** to implement triple-layer profitability guarantee
 - **First** with active competitor destruction strategies
+- **First** with ElizaOS-inspired agent architecture patterns
 - **Only** bot that guarantees 90%+ confidence before execution
 - **Only** bot where agents live, die, and evolve based on performance
+- **Only** bot with agent personalities and memory systems
+
+## 🎭 ElizaOS-Inspired Features (ELIZA version)
+
+### Agent Personalities
+Each agent has unique character traits:
+- **Alpha**: Aggressive MEV Hunter (high aggression, attacks competitors)
+- **Sigma**: Strategic Analyzer (patient, waits for perfect setups)
+- **Beta**: Balanced Trader (adapts to any situation)
+- **Gamma**: High-Risk Gambler (goes all-in on opportunities)
+
+### Memory System
+- **Episodic**: Remembers specific trades and events
+- **Semantic**: Learns general patterns (e.g., "profitable during 14:00-15:00")
+- **Procedural**: Remembers how to execute strategies
+
+### Action/Evaluator Pattern
+Agents don't just execute - they:
+1. Evaluate each action against past experiences
+2. Calculate confidence based on memory
+3. Decide which action aligns with their character
+4. Execute with personality-driven communication
+
+### Provider Architecture
+Clean separation of data sources:
+- BirdEye Provider
+- Jupiter Provider
+- (Easy to add more)
 
 ## 📞 Support
 

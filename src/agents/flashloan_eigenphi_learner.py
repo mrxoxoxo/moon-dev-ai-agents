@@ -19,25 +19,30 @@ from datetime import datetime, timedelta
 import numpy as np
 
 @dataclass
-class FlashloanAttack:
-    """A successful flashloan attack from EigenPhi"""
+class MEVAttack:
+    """A successful MEV attack from EigenPhi (all types)"""
     tx_hash: str
     timestamp: float
     blockchain: str
     attacker: str
     profit_usd: float
     profit_token: str
-    flashloan_amount: float
+    flashloan_amount: float  # 0 if no flashloan used
     flashloan_token: str
     protocols_used: List[str]
-    attack_type: str  # arbitrage, liquidation, oracle_manipulation
+    attack_type: str  # flashloan_arb, sandwich, frontrun, backrun, liquidation, oracle_manipulation, protocol_exploit
+    attack_category: str  # MEV, EXPLOIT, RUG_PULL
     dexs_involved: List[str]
     tokens_traded: List[str]
+    victim_txs: List[str]  # For sandwich/frontrun
     steps: List[Dict]
     gas_cost_usd: float
     net_profit_usd: float
     roi_percent: float
     complexity_score: int  # Number of steps
+    risk_level: float  # 0-1 (exploits are high risk)
+    block_number: int
+    position_in_block: int  # Important for MEV ordering
     
     def to_dict(self) -> Dict:
         return {
@@ -94,15 +99,26 @@ class StrategyPattern:
 
 class EigenPhiLearner:
     """
-    Learn from EigenPhi flashloan data
+    Learn from ALL MEV attacks and protocol exploits on EigenPhi
+    
+    Attack Types Analyzed:
+    1. Flashloan arbitrage
+    2. Sandwich attacks
+    3. Front-running
+    4. Back-running
+    5. Liquidations
+    6. Oracle manipulation
+    7. Protocol exploits (0-days)
+    8. JIT (Just-In-Time) liquidity
+    9. NFT sniping
+    10. Token launch exploits
     
     Features:
-    1. Fetch recent flashloan attacks
-    2. Analyze successful strategies
-    3. Extract patterns and parameters
-    4. Adapt to Solana ecosystem
-    5. Update agent strategies
-    6. Continuous learning loop
+    - Real-time MEV attack monitoring
+    - Pattern extraction from successful attacks
+    - Adaptation to Solana ecosystem
+    - Risk assessment and filtering
+    - Continuous strategy optimization
     """
     
     def __init__(self):
@@ -110,13 +126,30 @@ class EigenPhiLearner:
         # EigenPhi API endpoint (they have a public API)
         self.api_base = "https://api.eigenphi.io/api/v1"
         
-        # Historical attack database
+        # Historical attack database by type
         self.attack_history: deque = deque(maxlen=1000)
+        self.sandwich_attacks: deque = deque(maxlen=500)
+        self.frontrun_attacks: deque = deque(maxlen=500)
+        self.backrun_attacks: deque = deque(maxlen=500)
+        self.liquidation_attacks: deque = deque(maxlen=500)
+        self.exploit_attacks: deque = deque(maxlen=200)
         
         # Extracted patterns
         self.patterns: Dict[str, StrategyPattern] = {}
         
-        # Learning statistics
+        # Learning statistics by attack type
+        self.stats = {
+            'flashloan_arb': {'count': 0, 'total_profit': 0},
+            'sandwich': {'count': 0, 'total_profit': 0},
+            'frontrun': {'count': 0, 'total_profit': 0},
+            'backrun': {'count': 0, 'total_profit': 0},
+            'liquidation': {'count': 0, 'total_profit': 0},
+            'oracle_manipulation': {'count': 0, 'total_profit': 0},
+            'protocol_exploit': {'count': 0, 'total_profit': 0},
+            'jit_liquidity': {'count': 0, 'total_profit': 0},
+            'nft_snipe': {'count': 0, 'total_profit': 0}
+        }
+        
         self.total_attacks_analyzed = 0
         self.total_profit_learned = 0.0
         self.patterns_discovered = 0
@@ -151,23 +184,25 @@ class EigenPhiLearner:
             'meme': ['DOGE', 'SHIB', 'PEPE']
         }
         
-        cprint("\n🔬 EigenPhi Learning Engine Initialized", "magenta", attrs=['bold'])
+        cprint("\n🔬 EigenPhi MEV Learning Engine Initialized", "magenta", attrs=['bold'])
         cprint("   Data Source: https://eigenphi.io/", "cyan")
-        cprint("   Learning Scope: Flashloan attacks & MEV", "cyan")
+        cprint("   Learning Scope: ALL MEV attacks + exploits", "cyan")
+        cprint("   Attack Types: Flashloan, Sandwich, Frontrun, Backrun, Liquidation, Exploits", "cyan")
         cprint("   Adaptation Target: Solana ecosystem", "cyan")
     
-    def fetch_recent_attacks(self, hours: int = 24, min_profit: float = 100.0) -> List[FlashloanAttack]:
+    def fetch_all_mev_attacks(self, hours: int = 24, min_profit: float = 100.0) -> List[MEVAttack]:
         """
-        Fetch recent flashloan attacks from EigenPhi
+        Fetch ALL types of MEV attacks from EigenPhi
         
         Args:
             hours: Look back period in hours
             min_profit: Minimum profit threshold in USD
             
         Returns:
-            List of flashloan attacks
+            List of all MEV attacks (flashloan, sandwich, frontrun, etc.)
         """
-        cprint(f"\n📡 Fetching flashloan attacks from EigenPhi (last {hours}h)...", "cyan")
+        cprint(f"\n📡 Fetching ALL MEV attacks from EigenPhi (last {hours}h)...", "cyan", attrs=['bold'])
+        cprint("   Types: Flashloan, Sandwich, Frontrun, Backrun, Liquidation, Exploits", "yellow")
         
         attacks = []
         
@@ -187,15 +222,41 @@ class EigenPhiLearner:
             # response = requests.get(endpoint, params=params)
             
             # For now, simulate with example data
-            attacks = self._simulate_eigenphi_data(hours, min_profit)
+            # In production: Parse actual EigenPhi API responses
+            attacks = self._simulate_all_mev_attacks(hours, min_profit)
             
-            cprint(f"✅ Fetched {len(attacks)} attacks (${sum(a.profit_usd for a in attacks):,.2f} total profit)", "green")
-            
-            # Store in history
+            # Categorize and store
             for attack in attacks:
                 self.attack_history.append(attack)
                 self.total_attacks_analyzed += 1
                 self.total_profit_learned += attack.profit_usd
+                
+                # Update stats
+                if attack.attack_type in self.stats:
+                    self.stats[attack.attack_type]['count'] += 1
+                    self.stats[attack.attack_type]['total_profit'] += attack.profit_usd
+                
+                # Store in specialized queues
+                if attack.attack_type == 'sandwich':
+                    self.sandwich_attacks.append(attack)
+                elif attack.attack_type in ['frontrun', 'backrun']:
+                    self.frontrun_attacks.append(attack)
+                elif attack.attack_type == 'liquidation':
+                    self.liquidation_attacks.append(attack)
+                elif attack.attack_category == 'EXPLOIT':
+                    self.exploit_attacks.append(attack)
+            
+            # Print breakdown
+            cprint(f"\n✅ Fetched {len(attacks)} MEV attacks:", "green")
+            cprint(f"   Total Profit: ${sum(a.profit_usd for a in attacks):,.2f}", "green", attrs=['bold'])
+            
+            attack_counts = defaultdict(int)
+            for a in attacks:
+                attack_counts[a.attack_type] += 1
+            
+            for attack_type, count in sorted(attack_counts.items(), key=lambda x: x[1], reverse=True):
+                profit = sum(a.profit_usd for a in attacks if a.attack_type == attack_type)
+                cprint(f"   {attack_type}: {count} attacks (${profit:,.2f})", "cyan")
             
             return attacks
             
@@ -203,51 +264,95 @@ class EigenPhiLearner:
             cprint(f"❌ Error fetching EigenPhi data: {str(e)}", "red")
             return []
     
-    def _simulate_eigenphi_data(self, hours: int, min_profit: float) -> List[FlashloanAttack]:
+    def _simulate_all_mev_attacks(self, hours: int, min_profit: float) -> List[MEVAttack]:
         """
-        Simulate EigenPhi data for testing
+        Simulate ALL types of MEV attacks from EigenPhi
         
-        In production, this would parse actual API responses
+        In production, this would parse actual EigenPhi API responses
         """
         attacks = []
         
-        # Simulate 5-10 attacks
-        num_attacks = np.random.randint(5, 11)
+        # Simulate 15-30 attacks across all types
+        num_attacks = np.random.randint(15, 31)
+        
+        attack_type_distribution = {
+            'flashloan_arb': 0.25,
+            'sandwich': 0.30,
+            'frontrun': 0.15,
+            'backrun': 0.10,
+            'liquidation': 0.10,
+            'oracle_manipulation': 0.03,
+            'protocol_exploit': 0.02,
+            'jit_liquidity': 0.03,
+            'nft_snipe': 0.02
+        }
         
         for i in range(num_attacks):
-            attack_type = np.random.choice([
-                'arbitrage', 'liquidation', 'oracle_manipulation'
-            ], p=[0.7, 0.25, 0.05])
+            attack_type = np.random.choice(
+                list(attack_type_distribution.keys()),
+                p=list(attack_type_distribution.values())
+            )
             
-            profit = np.random.uniform(min_profit, 5000)
-            gas = np.random.uniform(10, 100)
+            # Determine attack category
+            if attack_type in ['protocol_exploit', 'oracle_manipulation']:
+                category = 'EXPLOIT'
+            else:
+                category = 'MEV'
             
-            attack = FlashloanAttack(
+            # Profit ranges by attack type
+            profit_ranges = {
+                'flashloan_arb': (min_profit, 5000),
+                'sandwich': (50, 2000),
+                'frontrun': (100, 1500),
+                'backrun': (50, 800),
+                'liquidation': (200, 10000),
+                'oracle_manipulation': (5000, 100000),
+                'protocol_exploit': (10000, 500000),
+                'jit_liquidity': (100, 3000),
+                'nft_snipe': (500, 50000)
+            }
+            
+            profit_range = profit_ranges.get(attack_type, (min_profit, 5000))
+            profit = np.random.uniform(*profit_range)
+            gas = np.random.uniform(5, 150)
+            
+            # Generate victim transactions for sandwich/frontrun
+            victim_txs = []
+            if attack_type in ['sandwich', 'frontrun']:
+                num_victims = np.random.randint(1, 4)
+                victim_txs = [f"0x{''.join(np.random.choice(list('0123456789abcdef'), 64))}" for _ in range(num_victims)]
+            
+            attack = MEVAttack(
                 tx_hash=f"0x{''.join(np.random.choice(list('0123456789abcdef'), 64))}",
                 timestamp=time.time() - np.random.uniform(0, hours * 3600),
                 blockchain=np.random.choice(['ethereum', 'bsc', 'arbitrum']),
                 attacker=f"0x{''.join(np.random.choice(list('0123456789abcdef'), 40))}",
                 profit_usd=profit,
                 profit_token='USDC',
-                flashloan_amount=np.random.uniform(10000, 1000000),
-                flashloan_token='USDC',
+                flashloan_amount=np.random.uniform(10000, 1000000) if 'flashloan' in attack_type else 0,
+                flashloan_token='USDC' if 'flashloan' in attack_type else '',
                 protocols_used=np.random.choice([
                     ['aave', 'uniswap_v2', 'sushiswap'],
                     ['compound', 'uniswap_v3', 'curve'],
                     ['maker', 'balancer', '1inch']
                 ]),
                 attack_type=attack_type,
+                attack_category=category,
                 dexs_involved=np.random.choice([
                     ['uniswap_v2', 'sushiswap'],
                     ['uniswap_v3', 'curve'],
                     ['balancer', '1inch']
                 ]),
                 tokens_traded=['USDC', 'WETH', 'DAI'],
+                victim_txs=victim_txs,
                 steps=self._generate_attack_steps(attack_type),
                 gas_cost_usd=gas,
                 net_profit_usd=profit - gas,
-                roi_percent=(profit - gas) / gas * 100,
-                complexity_score=np.random.randint(3, 8)
+                roi_percent=(profit - gas) / gas * 100 if gas > 0 else 0,
+                complexity_score=np.random.randint(2, 10),
+                risk_level=0.8 if category == 'EXPLOIT' else 0.3,
+                block_number=np.random.randint(18000000, 18100000),
+                position_in_block=np.random.randint(0, 300)
             )
             
             attacks.append(attack)
@@ -256,27 +361,86 @@ class EigenPhiLearner:
     
     def _generate_attack_steps(self, attack_type: str) -> List[Dict]:
         """Generate attack steps based on type"""
-        if attack_type == 'arbitrage':
+        if attack_type == 'flashloan_arb':
             return [
                 {'action': 'flashloan', 'protocol': 'aave', 'amount': 100000},
                 {'action': 'swap', 'dex': 'uniswap_v2', 'from': 'USDC', 'to': 'WETH'},
                 {'action': 'swap', 'dex': 'sushiswap', 'from': 'WETH', 'to': 'USDC'},
                 {'action': 'repay', 'protocol': 'aave', 'amount': 100030}
             ]
+        
+        elif attack_type == 'sandwich':
+            return [
+                {'action': 'frontrun', 'dex': 'uniswap_v2', 'victim_tx': '0xabc', 'buy_token': 'WETH'},
+                {'action': 'victim_executes', 'victim_tx': '0xabc'},
+                {'action': 'backrun', 'dex': 'uniswap_v2', 'sell_token': 'WETH', 'profit': True}
+            ]
+        
+        elif attack_type == 'frontrun':
+            return [
+                {'action': 'detect_pending', 'victim_tx': '0xdef', 'action': 'swap'},
+                {'action': 'submit_higher_gas', 'own_tx': '0xghi'},
+                {'action': 'execute_first', 'profit_from': 'price_impact'}
+            ]
+        
+        elif attack_type == 'backrun':
+            return [
+                {'action': 'monitor_mempool', 'target': 'large_swaps'},
+                {'action': 'detect_opportunity', 'victim_tx': '0xjkl'},
+                {'action': 'submit_immediately_after', 'own_tx': '0xmno'},
+                {'action': 'profit_from_price_change'}
+            ]
+        
         elif attack_type == 'liquidation':
             return [
                 {'action': 'flashloan', 'protocol': 'aave', 'amount': 50000},
-                {'action': 'liquidate', 'protocol': 'compound', 'target': 'position_123'},
+                {'action': 'liquidate', 'protocol': 'compound', 'target': 'undercollateralized_position'},
+                {'action': 'receive_collateral', 'discount': '8%'},
                 {'action': 'swap', 'dex': 'uniswap_v3', 'from': 'collateral', 'to': 'USDC'},
                 {'action': 'repay', 'protocol': 'aave', 'amount': 50015}
             ]
-        else:  # oracle_manipulation
+        
+        elif attack_type == 'oracle_manipulation':
             return [
                 {'action': 'flashloan', 'protocol': 'aave', 'amount': 500000},
-                {'action': 'manipulate', 'target': 'oracle_price'},
-                {'action': 'exploit', 'protocol': 'vulnerable_defi'},
-                {'action': 'swap', 'dex': 'uniswap_v2'},
+                {'action': 'manipulate_price', 'target': 'low_liquidity_pool'},
+                {'action': 'trigger_oracle_update', 'oracle': 'vulnerable_oracle'},
+                {'action': 'exploit_mispriced_protocol', 'protocol': 'lending_platform'},
+                {'action': 'swap_back', 'dex': 'uniswap_v2'},
                 {'action': 'repay', 'protocol': 'aave', 'amount': 500150}
+            ]
+        
+        elif attack_type == 'protocol_exploit':
+            return [
+                {'action': 'identify_vulnerability', 'type': 'reentrancy|integer_overflow|access_control'},
+                {'action': 'flashloan', 'protocol': 'aave', 'amount': 1000000},
+                {'action': 'exploit_contract', 'vulnerability': 'specific_bug'},
+                {'action': 'drain_funds', 'amount': 'maximum'},
+                {'action': 'convert_to_stable', 'dex': '1inch'},
+                {'action': 'repay', 'protocol': 'aave'}
+            ]
+        
+        elif attack_type == 'jit_liquidity':
+            return [
+                {'action': 'detect_large_swap', 'pending_tx': '0xpqr'},
+                {'action': 'add_liquidity', 'pool': 'target_pool', 'amount': 'large'},
+                {'action': 'wait_for_swap', 'victim_tx': '0xpqr'},
+                {'action': 'remove_liquidity', 'collect_fees': True},
+                {'action': 'profit_from_fees'}
+            ]
+        
+        elif attack_type == 'nft_snipe':
+            return [
+                {'action': 'monitor_new_listings', 'marketplace': 'opensea'},
+                {'action': 'detect_underpriced', 'nft': 'rare_item'},
+                {'action': 'submit_high_gas_buy', 'gas_price': 'max'},
+                {'action': 'immediate_relist', 'price': 'market_rate'},
+                {'action': 'profit_from_flip'}
+            ]
+        
+        else:
+            return [
+                {'action': 'unknown', 'type': attack_type}
             ]
     
     def analyze_and_extract_patterns(self, attacks: List[FlashloanAttack]) -> List[StrategyPattern]:

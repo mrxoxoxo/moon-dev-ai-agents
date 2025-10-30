@@ -22,6 +22,9 @@ from flashloan_baby_agent import FlashloanBabyAgent, AgentGenetics
 from flashloan_discovery import FlashloanDiscovery
 from flashloan_learning import ReinforcementLearner, AdaptiveGeneticLearner, TradeExperience
 from flashloan_slippage import SlippagePredictor
+from flashloan_validator import FlashloanValidator
+from flashloan_profit_distribution import ProfitDistributor
+from flashloan_gas_optimizer import GasOptimizer
 
 class FlashloanSwarm:
     """
@@ -55,6 +58,27 @@ class FlashloanSwarm:
         )
         self.genetic_learner = AdaptiveGeneticLearner()
         self.slippage_predictor = SlippagePredictor()
+        self.validator = FlashloanValidator(
+            min_accuracy_target=80.0,
+            min_confidence_to_execute=90.0
+        )
+        self.gas_optimizer = GasOptimizer(
+            sol_price_usd=self.core.sol_price_usd,
+            target_net_profit=self.config.get('target_net_profit', 100.0)
+        )
+        
+        # Profit distribution (if configured)
+        profit_config = self.config.get('profit_distribution', {})
+        if profit_config.get('btc_wallet') and profit_config.get('eth_wallet'):
+            self.profit_distributor = ProfitDistributor(
+                btc_wallet=profit_config['btc_wallet'],
+                eth_wallet=profit_config['eth_wallet'],
+                btc_allocation=profit_config.get('btc_allocation', 50.0),
+                eth_allocation=profit_config.get('eth_allocation', 50.0)
+            )
+        else:
+            self.profit_distributor = None
+            cprint("⚠️ Profit distribution not configured", "yellow")
         
         # Agent population
         self.agents: Dict[str, FlashloanBabyAgent] = {}
@@ -112,19 +136,32 @@ class FlashloanSwarm:
             'min_profit_threshold': 0.5,  # 0.5%
             'max_slippage_tolerance': 2.0,  # 2%
             'scan_interval_seconds': 30,
+            'target_net_profit': 100.0,  # TARGET: $100+ NET PROFIT
+            
+            # Gas optimization
+            'gas_monitoring_interval': 60,  # Monitor gas every 60s
+            'adaptive_trade_sizing': True,
             
             # Evolution settings
             'evolve_after_trades': 3,
             'reproduction_threshold': 5,  # Min trades before reproduction
-            'min_profit_for_reproduction': 1.0,  # $1 minimum
+            'min_profit_for_reproduction': 10.0,  # $10 minimum (raised for $100 target)
             
             # Safety settings
             'max_consecutive_failures': 3,
-            'emergency_shutdown_loss': 100.0,  # $100 loss triggers shutdown
+            'emergency_shutdown_loss': 500.0,  # $500 loss triggers shutdown (raised)
             
             # Save settings
             'save_state_every': 300,  # 5 minutes
-            'auto_save': True
+            'auto_save': True,
+            
+            # Profit distribution (optional)
+            'profit_distribution': {
+                'btc_wallet': '',
+                'eth_wallet': '',
+                'btc_allocation': 50.0,
+                'eth_allocation': 50.0
+            }
         }
     
     def _print_config(self):
@@ -267,40 +304,141 @@ class FlashloanSwarm:
         cprint(f"✅ Discovery updated: {len(self.active_tokens)} active tokens", "green")
     
     def _agent_execution_cycle(self):
-        """Execute trading cycle for all agents"""
+        """Execute trading cycle for all agents with gas optimization"""
         cprint(f"\n🤖 Agent Execution Cycle ({len(self.agents)} agents)", "yellow", attrs=['bold'])
+        
+        # Get current gas metrics
+        current_gas = self.gas_optimizer.get_current_gas_metrics()
+        
+        # Check if we should wait for better gas prices
+        timing_rec = self.gas_optimizer.recommend_best_execution_time()
+        
+        if timing_rec['recommendation'] == 'wait':
+            cprint(f"⏸️ WAITING for better gas conditions: {timing_rec['reason']}", "yellow")
+            cprint(f"   Potential savings: ${timing_rec['potential_savings']:.6f}", "green")
+            return  # Skip this cycle
         
         alive_agents = [a for a in self.agents.values() if a.is_alive]
         
         for agent in alive_agents:
             try:
-                # Agent scans and executes
-                result = agent.scan_and_execute()
+                # Get opportunities from agent
+                opportunities = self.core.scan_arbitrage_opportunities(
+                    agent.tokens,
+                    min_profit_percent=agent.genetics.min_profit_threshold
+                )
                 
-                self.total_trades_attempted += 1
+                if not opportunities:
+                    continue
                 
-                if result.get('success'):
-                    self.total_trades_successful += 1
-                    profit = result.get('profit', 0)
+                # Process each opportunity with gas optimization
+                for opportunity in opportunities[:3]:  # Top 3 opportunities
                     
-                    if profit > 0:
-                        self.total_profit_usd += profit
-                    else:
-                        self.total_loss_usd += abs(profit)
-                
-                # Create experience for RL
-                if result.get('opportunity'):
-                    self._create_learning_experience(agent, result)
-                
-                # Track genetic learning
-                if result.get('success') and result.get('profit', 0) > 0:
-                    self.genetic_learner.record_performance(agent.id, result['profit'])
-                else:
-                    self.genetic_learner.record_performance(agent.id, -1.0)
+                    # STEP 1: Gas-optimize trade size for $100+ target
+                    optimized = self.gas_optimizer.optimize_trade_for_gas(
+                        opportunity, current_gas
+                    )
+                    
+                    # STEP 2: Update opportunity with optimized parameters
+                    opportunity.optimal_amount = optimized.optimal_trade_size_usd / opportunity.buy_price
+                    opportunity.estimated_gas_cost_usd = optimized.expected_gas_cost_usd
+                    opportunity.net_profit_usd = optimized.expected_net_profit_usd
+                    
+                    # STEP 3: Predict slippage
+                    slippage_pred = self.slippage_predictor.predict_slippage(
+                        dex=opportunity.buy_dex,
+                        token_address=opportunity.token_address,
+                        trade_size_usd=optimized.optimal_trade_size_usd,
+                        liquidity=opportunity.liquidity_available
+                    )
+                    
+                    # STEP 4: Analyze market impact
+                    market_impact = self.slippage_predictor.exploit_market_impact(
+                        opportunity,
+                        opportunity.liquidity_available,
+                        opportunity.liquidity_available
+                    )
+                    
+                    # STEP 5: Validate execution (90%+ confidence required)
+                    decision = self.validator.validate_execution(
+                        opportunity, slippage_pred, market_impact
+                    )
+                    
+                    # STEP 6: Execute only if meets all criteria
+                    if decision.should_execute and optimized.meets_target:
+                        result = self._execute_validated_trade(
+                            agent, opportunity, decision, optimized
+                        )
+                        
+                        # Record result with validator
+                        self.validator.record_execution_result(
+                            decision,
+                            result.get('profit', 0),
+                            result.get('success', False)
+                        )
+                        
+                        # Distribute profits if successful
+                        if result.get('success') and result.get('profit', 0) > 0:
+                            self._distribute_profits(result['profit'])
+                        
+                        # Track performance
+                        self.total_trades_attempted += 1
+                        if result.get('success'):
+                            self.total_trades_successful += 1
+                            self.total_profit_usd += result.get('profit', 0)
+                        else:
+                            self.total_loss_usd += abs(result.get('profit', 0))
+                        
+                        # Create learning experience
+                        self._create_learning_experience(agent, result)
+                        
+                        # Track genetic performance
+                        if result.get('success') and result.get('profit', 0) > 0:
+                            self.genetic_learner.record_performance(agent.id, result['profit'])
+                        else:
+                            self.genetic_learner.record_performance(agent.id, -1.0)
+                    
+                    elif not optimized.meets_target:
+                        cprint(f"   ⚠️ Skipped: Only ${optimized.expected_net_profit_usd:.2f} (target: ${self.config['target_net_profit']:.0f})", "yellow")
                 
             except Exception as e:
                 cprint(f"❌ Agent {agent.id} error: {str(e)}", "red")
                 continue
+    
+    def _execute_validated_trade(self, agent, opportunity, decision, optimized) -> Dict:
+        """Execute a validated and optimized trade"""
+        cprint(f"\n🚀 EXECUTING TRADE - Agent {agent.id}", "green", attrs=['bold'])
+        
+        # Execute via core with optimized parameters
+        result = self.core.execute_flashloan_arbitrage(opportunity)
+        
+        # Update agent stats
+        agent.total_attempts += 1
+        
+        if result.get('success'):
+            agent.successful_attempts += 1
+            agent.total_profit_usd += result.get('profit', 0)
+            agent.consecutive_failures = 0
+        else:
+            agent.failed_attempts += 1
+            agent.consecutive_failures += 1
+        
+        # Check if agent should die
+        if agent.consecutive_failures >= agent.max_failed_attempts:
+            agent.die()
+        
+        return result
+    
+    def _distribute_profits(self, profit_usd: float):
+        """Distribute profits to BTC and ETH wallets"""
+        if self.profit_distributor and profit_usd > 0:
+            try:
+                result = self.profit_distributor.distribute_profit(profit_usd)
+                
+                if result['success']:
+                    cprint(f"💰 Profit distributed to BTC/ETH wallets", "green")
+            except Exception as e:
+                cprint(f"⚠️ Profit distribution error: {str(e)}", "yellow")
     
     def _create_learning_experience(self, agent: FlashloanBabyAgent, result: Dict):
         """Create RL experience from trade result"""

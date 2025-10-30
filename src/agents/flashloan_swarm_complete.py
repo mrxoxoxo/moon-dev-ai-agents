@@ -813,6 +813,497 @@ class EigenPhiLearner:
         cprint("✅ Learned from 25 MEV attacks (simulated)", "green")
 
 # ============================================================================
+# COMPETITOR DESTROYER 🔥
+# ============================================================================
+
+@dataclass
+class CompetitorBot:
+    """Identified competitor bot"""
+    wallet_address: str
+    bot_type: str  # 'sandwich', 'frontrun', 'arb', 'sniper'
+    avg_gas_bid: float
+    success_rate: float
+    avg_profit: float
+    pattern_signature: str
+    last_seen: float
+    transaction_count: int
+    estimated_capital: float
+    reaction_time_ms: float
+    predictability_score: float  # 0-1, higher = more predictable
+
+@dataclass
+class AttackStrategy:
+    """Strategy to destroy a competitor"""
+    name: str
+    target_bot: str
+    attack_type: str  # 'frontrun', 'backrun', 'sandwich', 'fake_opportunity', 'gas_war', 'bundle_stuff'
+    expected_damage_usd: float
+    our_cost_usd: float
+    success_probability: float
+    execution_priority: int
+
+class MempoolMonitor:
+    """Monitor mempool for competitor activities"""
+    
+    def __init__(self, rpc_endpoint: str):
+        self.rpc_endpoint = rpc_endpoint
+        self.pending_txs = deque(maxlen=10000)
+        self.competitor_patterns = {}
+        self.known_competitors = {}
+        
+        cprint("👁️ Mempool Monitor: Watching all competitors", "red", attrs=['bold'])
+        cprint("   🎯 Target: Front-run, back-run, and destroy enemy bots", "red")
+    
+    def detect_competitor_transaction(self, tx: Dict) -> Optional[CompetitorBot]:
+        """Detect if transaction is from a competitor bot"""
+        wallet = tx.get('from', '')
+        
+        # Pattern detection
+        is_high_gas = tx.get('priorityFee', 0) > 500000
+        is_fast_execution = True  # Would check timing
+        is_arb_pattern = self._matches_arb_pattern(tx)
+        
+        if is_high_gas and (is_fast_execution or is_arb_pattern):
+            # This is likely a bot
+            if wallet not in self.known_competitors:
+                bot_type = self._classify_bot_type(tx)
+                self.known_competitors[wallet] = CompetitorBot(
+                    wallet_address=wallet,
+                    bot_type=bot_type,
+                    avg_gas_bid=tx.get('priorityFee', 0),
+                    success_rate=0.0,
+                    avg_profit=0.0,
+                    pattern_signature=self._generate_pattern_signature(tx),
+                    last_seen=time.time(),
+                    transaction_count=1,
+                    estimated_capital=0.0,
+                    reaction_time_ms=50.0,
+                    predictability_score=0.5
+                )
+                cprint(f"🎯 NEW COMPETITOR DETECTED: {wallet[:8]}... ({bot_type})", "red", attrs=['bold'])
+            else:
+                # Update existing
+                bot = self.known_competitors[wallet]
+                bot.last_seen = time.time()
+                bot.transaction_count += 1
+                bot.avg_gas_bid = (bot.avg_gas_bid * 0.9) + (tx.get('priorityFee', 0) * 0.1)
+            
+            return self.known_competitors[wallet]
+        
+        return None
+    
+    def _matches_arb_pattern(self, tx: Dict) -> bool:
+        """Check if matches arbitrage pattern"""
+        # Look for multiple swaps, flashloan calls, etc.
+        instructions = tx.get('instructions', [])
+        return len(instructions) >= 3
+    
+    def _classify_bot_type(self, tx: Dict) -> str:
+        """Classify bot type from transaction pattern"""
+        instructions = tx.get('instructions', [])
+        
+        if len(instructions) >= 5:
+            return 'sandwich'
+        elif len(instructions) >= 3:
+            return 'arb'
+        else:
+            return 'frontrun'
+    
+    def _generate_pattern_signature(self, tx: Dict) -> str:
+        """Generate unique pattern signature"""
+        # Create fingerprint of bot's behavior
+        return f"pat_{hash(str(tx.get('instructions', [])))}"
+    
+    def get_all_competitors(self) -> List[CompetitorBot]:
+        """Get all known competitors"""
+        return list(self.known_competitors.values())
+
+class CompetitorDestroyer:
+    """
+    🔥 DESTROYER - Eliminate competing bots
+    
+    ATTACK VECTORS:
+    1. Front-run their transactions
+    2. Back-run to extract remaining value
+    3. Sandwich them (reverse sandwich)
+    4. Win gas wars with game theory
+    5. Create fake opportunities (honeypots)
+    6. Bundle stuffing (prevent their inclusion)
+    7. Transaction replacement attacks
+    8. Exhaust their capital with unprofitable bait
+    """
+    
+    def __init__(self, mempool_monitor: MempoolMonitor, flashloan_core):
+        self.mempool = mempool_monitor
+        self.core = flashloan_core
+        
+        # Attack statistics
+        self.attacks_launched = 0
+        self.attacks_successful = 0
+        self.competitors_eliminated = 0
+        self.profit_extracted_from_competitors = 0.0
+        self.damage_inflicted = 0.0
+        
+        # Strategy weights (learned over time)
+        self.strategy_weights = {
+            'frontrun': 1.0,
+            'backrun': 1.0,
+            'sandwich': 0.8,
+            'gas_war': 1.0,
+            'fake_opportunity': 0.5,
+            'bundle_stuff': 0.7,
+            'transaction_replace': 0.9
+        }
+        
+        cprint("\n" + "="*80, "red")
+        cprint("🔥 COMPETITOR DESTROYER ACTIVATED", "red", attrs=['bold'])
+        cprint("="*80, "red")
+        cprint("⚔️ ATTACK MODES:", "red")
+        cprint("   1️⃣ Front-running: Steal opportunities before competitors", "yellow")
+        cprint("   2️⃣ Back-running: Extract residual value after competitors", "yellow")
+        cprint("   3️⃣ Reverse Sandwich: Sandwich the sandwicher", "yellow")
+        cprint("   4️⃣ Gas War Victory: Optimal bidding strategy", "yellow")
+        cprint("   5️⃣ Honeypot: Fake opportunities to drain competitor capital", "yellow")
+        cprint("   6️⃣ Bundle Stuffing: Block competitor transactions", "yellow")
+        cprint("   7️⃣ TX Replacement: Replace their pending transactions", "yellow")
+        cprint("="*80 + "\n", "red")
+    
+    def analyze_and_attack(self, competitor_tx: Dict, competitor: CompetitorBot) -> Optional[AttackStrategy]:
+        """Analyze competitor transaction and choose best attack"""
+        
+        # Analyze what they're trying to do
+        target_profit = self._estimate_competitor_profit(competitor_tx)
+        our_advantage = self._calculate_our_advantage(competitor)
+        
+        if target_profit < 5.0:
+            return None  # Not worth it
+        
+        # Choose best attack strategy
+        possible_attacks = []
+        
+        # 1. FRONT-RUN
+        if competitor.bot_type in ['arb', 'sniper']:
+            frontrun_profit = target_profit * 0.95  # We get 95% if successful
+            frontrun_cost = competitor.avg_gas_bid * 1.5  # Must outbid
+            
+            if frontrun_profit > frontrun_cost:
+                possible_attacks.append(AttackStrategy(
+                    name="Front-Run Attack",
+                    target_bot=competitor.wallet_address,
+                    attack_type='frontrun',
+                    expected_damage_usd=target_profit,
+                    our_cost_usd=frontrun_cost,
+                    success_probability=0.85 * our_advantage,
+                    execution_priority=1
+                ))
+        
+        # 2. BACK-RUN
+        if competitor.bot_type in ['sandwich', 'frontrun']:
+            backrun_profit = target_profit * 0.3  # Extract remaining value
+            backrun_cost = competitor.avg_gas_bid * 0.8  # Can bid lower
+            
+            if backrun_profit > backrun_cost:
+                possible_attacks.append(AttackStrategy(
+                    name="Back-Run Attack",
+                    target_bot=competitor.wallet_address,
+                    attack_type='backrun',
+                    expected_damage_usd=backrun_profit,
+                    our_cost_usd=backrun_cost,
+                    success_probability=0.90 * our_advantage,
+                    execution_priority=2
+                ))
+        
+        # 3. REVERSE SANDWICH
+        if competitor.bot_type == 'sandwich':
+            sandwich_profit = target_profit * 1.2  # Can extract more
+            sandwich_cost = competitor.avg_gas_bid * 2.0  # Need to dominate
+            
+            if sandwich_profit > sandwich_cost * 3:  # High margin needed
+                possible_attacks.append(AttackStrategy(
+                    name="Reverse Sandwich",
+                    target_bot=competitor.wallet_address,
+                    attack_type='sandwich',
+                    expected_damage_usd=target_profit * 2,
+                    our_cost_usd=sandwich_cost,
+                    success_probability=0.70 * our_advantage,
+                    execution_priority=3
+                ))
+        
+        # 4. GAS WAR (Game Theory Optimal)
+        if competitor.predictability_score > 0.7:
+            optimal_bid = self._calculate_optimal_gas_bid(competitor)
+            gas_war_profit = target_profit * 0.85
+            
+            if gas_war_profit > optimal_bid:
+                possible_attacks.append(AttackStrategy(
+                    name="Gas War Victory",
+                    target_bot=competitor.wallet_address,
+                    attack_type='gas_war',
+                    expected_damage_usd=target_profit,
+                    our_cost_usd=optimal_bid,
+                    success_probability=0.92 * our_advantage,
+                    execution_priority=1
+                ))
+        
+        # 5. BUNDLE STUFFING (Prevent their TX from being included)
+        if target_profit > 50.0:  # Only for high-value targets
+            stuff_cost = 10.0  # Cost to spam bundle
+            stuff_damage = target_profit  # They lose the opportunity
+            
+            possible_attacks.append(AttackStrategy(
+                name="Bundle Stuffing",
+                target_bot=competitor.wallet_address,
+                attack_type='bundle_stuff',
+                expected_damage_usd=stuff_damage,
+                our_cost_usd=stuff_cost,
+                success_probability=0.60,
+                execution_priority=4
+            ))
+        
+        # Choose best attack
+        if not possible_attacks:
+            return None
+        
+        # Sort by expected value (EV = prob * damage - cost)
+        possible_attacks.sort(
+            key=lambda a: (a.success_probability * a.expected_damage_usd) - a.our_cost_usd,
+            reverse=True
+        )
+        
+        best_attack = possible_attacks[0]
+        
+        # Only attack if positive EV
+        expected_value = (best_attack.success_probability * best_attack.expected_damage_usd) - best_attack.our_cost_usd
+        
+        if expected_value > 1.0:
+            cprint(f"\n⚔️ ATTACK INITIATED: {best_attack.name}", "red", attrs=['bold'])
+            cprint(f"   Target: {competitor.wallet_address[:8]}... ({competitor.bot_type})", "yellow")
+            cprint(f"   Expected Damage: ${best_attack.expected_damage_usd:.2f}", "red")
+            cprint(f"   Our Cost: ${best_attack.our_cost_usd:.2f}", "yellow")
+            cprint(f"   Success Prob: {best_attack.success_probability:.1%}", "green")
+            cprint(f"   Expected Value: ${expected_value:.2f}", "green", attrs=['bold'])
+            
+            return best_attack
+        
+        return None
+    
+    def execute_attack(self, strategy: AttackStrategy) -> Dict:
+        """Execute attack strategy"""
+        self.attacks_launched += 1
+        
+        if strategy.attack_type == 'frontrun':
+            return self._execute_frontrun(strategy)
+        elif strategy.attack_type == 'backrun':
+            return self._execute_backrun(strategy)
+        elif strategy.attack_type == 'sandwich':
+            return self._execute_reverse_sandwich(strategy)
+        elif strategy.attack_type == 'gas_war':
+            return self._execute_gas_war(strategy)
+        elif strategy.attack_type == 'bundle_stuff':
+            return self._execute_bundle_stuffing(strategy)
+        else:
+            return {'success': False}
+    
+    def _execute_frontrun(self, strategy: AttackStrategy) -> Dict:
+        """Front-run competitor's transaction"""
+        cprint(f"🏃 Executing FRONT-RUN attack...", "red")
+        
+        # Simulate front-run
+        success = random.random() < strategy.success_probability
+        
+        if success:
+            profit = strategy.expected_damage_usd * random.uniform(0.9, 1.0)
+            cost = strategy.our_cost_usd
+            net = profit - cost
+            
+            self.attacks_successful += 1
+            self.profit_extracted_from_competitors += net
+            self.damage_inflicted += profit
+            
+            cprint(f"✅ FRONT-RUN SUCCESS: +${net:.2f} profit", "green", attrs=['bold'])
+            cprint(f"   💀 Competitor lost ${profit:.2f}", "red")
+            
+            return {
+                'success': True,
+                'profit': net,
+                'damage': profit,
+                'attack_type': 'frontrun'
+            }
+        else:
+            cprint(f"❌ FRONT-RUN FAILED: Lost ${strategy.our_cost_usd:.2f} gas", "yellow")
+            return {'success': False, 'cost': strategy.our_cost_usd}
+    
+    def _execute_backrun(self, strategy: AttackStrategy) -> Dict:
+        """Back-run to extract remaining value"""
+        cprint(f"🏃 Executing BACK-RUN attack...", "red")
+        
+        success = random.random() < strategy.success_probability
+        
+        if success:
+            profit = strategy.expected_damage_usd * random.uniform(0.85, 1.0)
+            cost = strategy.our_cost_usd
+            net = profit - cost
+            
+            self.attacks_successful += 1
+            self.profit_extracted_from_competitors += net
+            
+            cprint(f"✅ BACK-RUN SUCCESS: +${net:.2f} extracted", "green", attrs=['bold'])
+            
+            return {
+                'success': True,
+                'profit': net,
+                'attack_type': 'backrun'
+            }
+        else:
+            return {'success': False, 'cost': strategy.our_cost_usd}
+    
+    def _execute_reverse_sandwich(self, strategy: AttackStrategy) -> Dict:
+        """Sandwich the sandwicher"""
+        cprint(f"🥪 Executing REVERSE SANDWICH...", "red", attrs=['bold'])
+        
+        success = random.random() < strategy.success_probability
+        
+        if success:
+            profit = strategy.expected_damage_usd * random.uniform(1.0, 1.3)
+            cost = strategy.our_cost_usd
+            net = profit - cost
+            
+            self.attacks_successful += 1
+            self.profit_extracted_from_competitors += net
+            self.damage_inflicted += profit * 2
+            
+            cprint(f"✅ REVERSE SANDWICH SUCCESS: +${net:.2f}", "green", attrs=['bold'])
+            cprint(f"   💀💀 DOUBLE DAMAGE to competitor: ${profit*2:.2f}", "red", attrs=['bold'])
+            
+            return {
+                'success': True,
+                'profit': net,
+                'damage': profit * 2,
+                'attack_type': 'sandwich'
+            }
+        else:
+            return {'success': False, 'cost': strategy.our_cost_usd}
+    
+    def _execute_gas_war(self, strategy: AttackStrategy) -> Dict:
+        """Win gas war with optimal bidding"""
+        cprint(f"⛽ Executing GAS WAR with optimal bid...", "red")
+        
+        success = random.random() < strategy.success_probability
+        
+        if success:
+            profit = strategy.expected_damage_usd * random.uniform(0.9, 1.0)
+            cost = strategy.our_cost_usd
+            net = profit - cost
+            
+            self.attacks_successful += 1
+            self.profit_extracted_from_competitors += net
+            self.damage_inflicted += profit
+            
+            cprint(f"✅ GAS WAR WON: +${net:.2f}", "green", attrs=['bold'])
+            
+            return {
+                'success': True,
+                'profit': net,
+                'damage': profit,
+                'attack_type': 'gas_war'
+            }
+        else:
+            return {'success': False, 'cost': strategy.our_cost_usd}
+    
+    def _execute_bundle_stuffing(self, strategy: AttackStrategy) -> Dict:
+        """Stuff bundle to block competitor"""
+        cprint(f"🚫 Executing BUNDLE STUFFING...", "red")
+        
+        success = random.random() < strategy.success_probability
+        
+        if success:
+            damage = strategy.expected_damage_usd
+            cost = strategy.our_cost_usd
+            
+            self.attacks_successful += 1
+            self.damage_inflicted += damage
+            
+            cprint(f"✅ BUNDLE STUFFED: Competitor blocked from ${damage:.2f} opportunity", "green", attrs=['bold'])
+            
+            return {
+                'success': True,
+                'profit': 0,  # We don't profit, but competitor loses
+                'damage': damage,
+                'attack_type': 'bundle_stuff'
+            }
+        else:
+            return {'success': False, 'cost': strategy.our_cost_usd}
+    
+    def _estimate_competitor_profit(self, tx: Dict) -> float:
+        """Estimate how much profit competitor expects"""
+        # Analyze transaction to estimate expected profit
+        # Higher gas = higher expected profit usually
+        gas_bid = tx.get('priorityFee', 0) / 1e9
+        estimated_profit = gas_bid * random.uniform(10, 50)  # 10-50x gas ratio
+        return estimated_profit
+    
+    def _calculate_our_advantage(self, competitor: CompetitorBot) -> float:
+        """Calculate our advantage over competitor (0-1)"""
+        # Factors: their predictability, our speed, their success rate
+        predictability_advantage = competitor.predictability_score
+        speed_advantage = 1.0 - (competitor.reaction_time_ms / 200.0)  # Assume we're 100ms
+        
+        return min(1.0, (predictability_advantage + speed_advantage) / 2)
+    
+    def _calculate_optimal_gas_bid(self, competitor: CompetitorBot) -> float:
+        """Calculate game-theory optimal gas bid"""
+        # Nash equilibrium: bid just enough to win
+        their_avg_bid = competitor.avg_gas_bid / 1e9
+        
+        # If they're predictable, bid just slightly more
+        if competitor.predictability_score > 0.8:
+            optimal_bid = their_avg_bid * 1.05  # 5% more
+        else:
+            # Less predictable, need safety margin
+            optimal_bid = their_avg_bid * 1.2  # 20% more
+        
+        return optimal_bid
+    
+    def create_honeypot_opportunity(self) -> Dict:
+        """Create fake opportunity to drain competitor capital"""
+        cprint(f"\n🍯 Creating HONEYPOT for competitors...", "red", attrs=['bold'])
+        
+        # Create fake arbitrage that looks profitable but isn't
+        fake_profit = random.uniform(50, 200)
+        actual_loss = random.uniform(10, 30)
+        
+        honeypot = {
+            'type': 'fake_arbitrage',
+            'apparent_profit': fake_profit,
+            'actual_loss': actual_loss,
+            'target': 'greedy_bots',
+            'active': True
+        }
+        
+        cprint(f"   Apparent profit: ${fake_profit:.2f}", "yellow")
+        cprint(f"   Actual loss: -${actual_loss:.2f}", "red")
+        cprint(f"   🎣 Trap set for greedy competitors!", "green")
+        
+        return honeypot
+    
+    def print_destroyer_stats(self):
+        """Print destroyer statistics"""
+        if self.attacks_launched == 0:
+            return
+        
+        success_rate = (self.attacks_successful / self.attacks_launched) * 100
+        
+        cprint(f"\n" + "="*80, "red")
+        cprint(f"🔥 DESTROYER STATISTICS", "red", attrs=['bold'])
+        cprint(f"="*80, "red")
+        cprint(f"   Attacks Launched: {self.attacks_launched}", "yellow")
+        cprint(f"   Attacks Successful: {self.attacks_successful} ({success_rate:.1f}%)", "green")
+        cprint(f"   Competitors Eliminated: {self.competitors_eliminated}", "red", attrs=['bold'])
+        cprint(f"   Profit Extracted: ${self.profit_extracted_from_competitors:.2f}", "green", attrs=['bold'])
+        cprint(f"   Damage Inflicted: ${self.damage_inflicted:.2f}", "red", attrs=['bold'])
+        cprint(f"="*80 + "\n", "red")
+
+# ============================================================================
 # DISCOVERY
 # ============================================================================
 
